@@ -22,7 +22,7 @@ df["Visual Acuity"] = df["Visual Acuity"].round(1)
 st.title("Prem CC - Player Dashboard")
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["👁️ Visual Attributes", "⚡ Reactions", "🎯 Hand-Eye Coordination","🧠 Anticipation","📊 Player Profiling"])
 
-
+ 
 # ---------------------- TAB 1: Visual Attributes ---------------------- #
 with tab1:
     st.header("Visual Attribute Metrics")
