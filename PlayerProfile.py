@@ -116,6 +116,128 @@ def radar_chart(player_row, name, color=None):
         line=dict(color=color) if color else None
     )
 
+def extract_strengths_weaknesses(pdata):
+    insights = []
+    strengths = []
+    weaknesses = []
+
+    def check_motion_loss(static, dynamic):
+        if static and dynamic and static > 0:
+            loss_percent = ((dynamic - static) / static) * 100
+            if loss_percent > 25:
+                weaknesses.append(f"Dynamic vision drops significantly (~{int(loss_percent)}% worse than static acuity)")
+            elif 0 < loss_percent <= 10:
+                insights.append("Objects in motion have little to no effect on how far he can see")
+            elif loss_percent < 0:
+                strengths.append("Performs better visually when objects are moving")
+        return None
+
+    def check_decision_conflict(speed, latency, accuracy):
+        insight = []
+        if speed and latency:
+            reaction_speed = speed - latency
+            if reaction_speed > 0:
+                delay_pct = (reaction_speed / speed) * 100
+                if delay_pct > 50:
+                    insight.append(f"Significant delay after decision (~{int(delay_pct)}% of speed duration spent in latency)")
+        if accuracy is not None and accuracy < 0.65:
+            accuracy_drop = (1 - accuracy / 0.9) * 100
+            insight.append(f"Decision accuracy is below expectation (~{int(accuracy_drop)}% shortfall from 90%)")
+        return ", ".join(insight) if insight else None
+
+    def check_anticipation_diff(score, sin=None, linear=None):
+        if sin is not None and linear is not None:
+            diff = abs(sin - linear)
+            if min(sin, linear) > 0:
+                percent_diff = (diff / min(sin, linear)) * 100
+                if percent_diff > 25:
+                    weaknesses.append(f"Anticipation differs significantly (~{int(percent_diff)}% gap between Sin and Linear) – may struggle with pattern consistency")
+                elif percent_diff <= 10:
+                    strengths.append("Consistent anticipation across sinusoidal and linear patterns")
+        return None
+
+    # Compare static vs dynamic acuity
+    motion_loss = check_motion_loss(pdata.get('Static Acuity Avg'), pdata.get('Dynamic Acuity Avg'))
+    if motion_loss:
+        insights.append(motion_loss)
+
+    # Compare decision metrics
+    decision_insight = check_decision_conflict(
+        pdata.get('Decision Making Speed Avg'),
+        pdata.get('Decision Latency'),
+        pdata.get('Accuracy')
+    )
+    if decision_insight:
+        insights.append(decision_insight)
+
+    # Compare sin vs linear anticipation if available
+    sin_keys = [k for k in pdata.index if 'Anticipation Time-Sin' in k]
+    linear_keys = [k for k in pdata.index if 'Anticipation Time-Linear' in k]
+    if sin_keys and linear_keys:
+        sin_avg = pdata[sin_keys].mean()
+        linear_avg = pdata[linear_keys].mean()
+        ant_diff = check_anticipation_diff(pdata.get('Anticipation Score'), sin_avg, linear_avg)
+        if ant_diff:
+            insights.append(ant_diff)
+
+    raw_thresholds = {
+        'Static Acuity Avg': ('Vision', 'low'),
+        'Dynamic Acuity Avg': ('Vision', 'low'),
+        'Contrast Sensitivity': ('Vision', 'high'),
+        'Stereopsis Avg': ('Vision', 'low'),
+        'Reaction Time Avg': ('Reaction', 'low'),
+        'Decision Making Speed Avg': ('Decision Making', 'low'),
+        'Decision Latency': ('Decision Making', 'low'),
+        'Accuracy': ('Decision Making', 'high'),
+        'Digit Span': ('Cognitive', 'high'),
+        'Visual Memory': ('Cognitive', 'high'),
+        'Hand-Eye Avg': ('Hand-Eye', 'low'),
+        'Anticipation Score': ('Anticipation', 'high')
+    }
+    category_scores = {}
+
+    for metric, (category, preference) in raw_thresholds.items():
+        value = pdata.get(metric, None)
+        if pd.isnull(value):
+            continue
+        if category not in category_scores:
+            category_scores[category] = []
+        category_scores[category].append((metric, value, preference))
+
+    for category, items in category_scores.items():
+        low_metrics = []
+        high_metrics = []
+        for metric, val, pref in items:
+            if metric == 'Stereopsis Avg':
+                if val < 100:
+                    strengths.append(category)
+                elif val > 800:
+                    weaknesses.append(category)
+                continue
+            if pref == 'low':
+                low_metrics.append(val)
+            elif pref == 'high':
+                high_metrics.append(val)
+
+        if low_metrics:
+            low_avg = sum(low_metrics) / len(low_metrics)
+            if low_avg < 4:
+                strengths.append(category)
+            elif low_avg > 6:
+                weaknesses.append(category)
+
+        if high_metrics:
+            high_avg = sum(high_metrics) / len(high_metrics)
+            if high_avg > 4:
+                strengths.append(category)
+            elif high_avg < 3:
+                weaknesses.append(category)
+
+    weaknesses = list(set(weaknesses) - set(strengths))
+    return strengths, weaknesses, insights
+
+
+
 def generate_summary(name, strengths, weaknesses):
     summary = f"**{name} Summary:**\n"
     if strengths:
@@ -130,16 +252,29 @@ def generate_summary(name, strengths, weaknesses):
     return summary
 
 st.set_page_config(page_title="Player Dashboard", layout="wide")
-st.title("Prem CC Player Dashboard")
+# Add this right after st.set_page_config(...)
+col_logo, col_title = st.columns([1, 6])
+with col_logo:
+    st.image("SportOptimaLogoWhite.png", width=100)
+
+with col_title:
+    st.markdown("""
+    <div style='display: flex; align-items: center; height: 100%;'>
+        <h2 style='margin: 0; font-size : 45px'>Prem CC Performance Dashboard</h2>
+    </div>
+    """, unsafe_allow_html=True)
+    #st.markdown("<h2 style='padding-top: 20px; text-align: left;'>Sport Optima Performance Dashboard</h2>", unsafe_allow_html=True)
 
 latest_data, full_data = load_data()
 
 # Convert to tabs instead of radio
-tab1, tab2, tab3 = st.tabs(["Player Deepdive", "Compare Players", "Player Progression"])
+tab1, tab2 = st.tabs(["🧠 Player Deepdive", "🆚 Compare Players"])
 
 with tab1:
     st.header("Current Player Status")
-    selected_player = st.selectbox("Select a Player", latest_data['Name'].unique(), key="current")
+    col_player, _ = st.columns([1, 5])
+    with col_player:
+        selected_player = st.selectbox("Select a Player", latest_data['Name'].unique(), key="current")
     player_data = latest_data[latest_data['Name'] == selected_player].iloc[0]
     col1, col2 = st.columns(2)
     with col1:
@@ -148,27 +283,70 @@ with tab1:
         fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 5])), showlegend=False)
         st.plotly_chart(fig, key=f"radar_chart_{selected_player}")
     with col2:
-        st.subheader("Category-wise Scores")
-        df = player_data[[
-            'Vision Score', 'Reaction Time Avg', 'Reaction Score',
-            'Decision Speed Subscore', 'Decision Accuracy Subscore', 'Decision Latency Subscore', 'Decision Making Score',
-            'Cognitive Score', 'Hand-Eye Score', 'Anticipation Score']].T
-        df.columns = [selected_player]
-        st.dataframe(df)
+        st.subheader("Key Metrics")
+        key_metrics = [
+            'Static Acuity Avg', 'Dynamic Acuity Avg', 'Contrast Sensitivity', 'Stereopsis Avg',
+            'Reaction Time Avg', 'Decision Making Speed Avg', 'Decision Latency', 'Accuracy',
+            'Digit Span', 'Visual Memory', 'Hand-Eye Avg', 'Anticipation Score']
+        latest_all = latest_data.set_index('Name')
+        metric_descriptions = {
+            'Static Acuity Avg': "Ability to identify fine detail. Critical for sighting the ball early.",
+            'Dynamic Acuity Avg': "Clarity while objects are moving. Important for judging fast deliveries.",
+            'Contrast Sensitivity': "Ability to distinguish shades. Useful in poor lighting or against similar backgrounds.",
+            'Stereopsis Avg': "Depth perception. Crucial for catching and gauging ball trajectory.",
+            'Reaction Time Avg': "How fast you respond to stimuli. Impacts fielding and batting reflexes.",
+            'Decision Making Speed Avg': "Speed of choosing between options. Affects shot selection and gameplay strategy.",
+            'Decision Latency': "Delay between decision and action. Impacts real-time gameplay decisions.",
+            'Accuracy': "Precision of decision outcomes. Affects consistency in performance.",
+            'Digit Span': "Short-term memory span. Useful for recalling field placements or opponent patterns.",
+            'Visual Memory': "Ability to remember visual cues. Helps in anticipation and strategic decisions.",
+            'Hand-Eye Avg': "Coordination between vision and hand movement. Core skill for batting, catching, throwing.",
+            'Anticipation Score': "Ability to predict what's next. Crucial for reacting before the event occurs."
+        }
+        metrics_df = pd.DataFrame({'Metric': key_metrics})
+        
+        metrics_df[selected_player] = metrics_df["Metric"].map(player_data.to_dict())
+        metrics_df["Team Avg"] = metrics_df["Metric"].map(latest_all[key_metrics].mean().to_dict())
+        metrics_df["Percentile"] = metrics_df["Metric"].map(
+            lambda m: latest_all[m].rank(pct=True).get(selected_player, None) * 100 if m in latest_all else None
+        ).round(1)
+        metrics_df["What it means"] = metrics_df["Metric"].map(metric_descriptions)
+        st.dataframe(metrics_df)
 
-    st.subheader("Summary Table")
-    summary = pd.DataFrame({
-        'Category': ['Vision', 'Reaction', 'Decision Making', 'Cognitive', 'Hand-Eye', 'Anticipation'],
-        'Score (/5)': [
-            player_data['Vision Score'],
-            player_data['Reaction Score'],
-            player_data['Decision Making Score'],
-            player_data['Cognitive Score'],
-            player_data['Hand-Eye Score'],
-            player_data['Anticipation Score']
-        ]
-    })
-    st.table(summary.set_index('Category'))
+        s, w, i = extract_strengths_weaknesses(player_data)
+        st.subheader("Detailed Insights")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.markdown("### Strengths")
+            if s:
+                for category in s:
+                    st.markdown(f"- {category}")
+            else:
+                st.markdown("None")
+        with col_b:
+            st.markdown("### Weaknesses")
+            if w:
+                for category in w:
+                    st.markdown(f"- {category}")
+            else:
+                st.markdown("None")
+
+        st.markdown("---")
+        st.markdown("### Summary")
+        summary_bullets = []
+        if s:
+            summary_bullets.append(f"**Strength Areas:** {', '.join(s)}")
+        if w:
+            summary_bullets.append(f"**Needs Improvement In:** {', '.join(w)}")
+        if not s and not w:
+            summary_bullets.append("**Balanced performer across all metrics.**")
+        for item in summary_bullets:
+            st.markdown(f"- {item}")
+
+        if i:
+            st.markdown("### Diagnostic Insights")
+            for insight in i:
+                st.markdown(f"- {insight}")
 
 with tab2:
     st.header("Compare Two Players")
@@ -213,11 +391,4 @@ with tab2:
             # st.markdown("**Weaknesses:** " + (", ".join(w2) if w2 else "None"))
         
 
-with tab3:
-    st.header("Player Progression Over Time")
-    selected_player = st.selectbox("Choose Player", full_data['Name'].unique(), key="progression")
-    history = full_data[full_data['Name'] == selected_player]
-    st.line_chart(history.set_index('Attempt')[[
-        'Vision Score', 'Reaction Score', 'Decision Making Score',
-        'Cognitive Score', 'Hand-Eye Score', 'Anticipation Score'
-    ]])
+
