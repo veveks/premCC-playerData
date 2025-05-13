@@ -116,6 +116,19 @@ def radar_chart(player_row, name, color=None):
         line=dict(color=color) if color else None
     )
 
+def generate_summary(name, strengths, weaknesses):
+    summary = f"**{name} Summary:**\n"
+    if strengths:
+        summary += f"Shows strong performance in {', '.join(strengths)}. "
+    if not strengths:
+        summary += "Has scored low across attributes, needs improvement"
+    if weaknesses:
+        summary += f"Needs improvement in {', '.join(weaknesses)}."
+    if not weaknesses:
+        summary += "Has a balanced profile across all attributes."
+    
+    return summary
+
 st.set_page_config(page_title="Player Dashboard", layout="wide")
 st.title("Prem CC Player Dashboard")
 
@@ -125,17 +138,15 @@ latest_data, full_data = load_data()
 tab1, tab2, tab3 = st.tabs(["Player Deepdive", "Compare Players", "Player Progression"])
 
 with tab1:
-    st.header("Player Deepdive")
+    st.header("Current Player Status")
     selected_player = st.selectbox("Select a Player", latest_data['Name'].unique(), key="current")
     player_data = latest_data[latest_data['Name'] == selected_player].iloc[0]
-
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("Radar Profile")
         fig = go.Figure(data=[radar_chart(player_data, selected_player)])
         fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 5])), showlegend=False)
-        st.plotly_chart(fig)
-
+        st.plotly_chart(fig, key=f"radar_chart_{selected_player}")
     with col2:
         st.subheader("Category-wise Scores")
         df = player_data[[
@@ -144,6 +155,20 @@ with tab1:
             'Cognitive Score', 'Hand-Eye Score', 'Anticipation Score']].T
         df.columns = [selected_player]
         st.dataframe(df)
+
+    st.subheader("Summary Table")
+    summary = pd.DataFrame({
+        'Category': ['Vision', 'Reaction', 'Decision Making', 'Cognitive', 'Hand-Eye', 'Anticipation'],
+        'Score (/5)': [
+            player_data['Vision Score'],
+            player_data['Reaction Score'],
+            player_data['Decision Making Score'],
+            player_data['Cognitive Score'],
+            player_data['Hand-Eye Score'],
+            player_data['Anticipation Score']
+        ]
+    })
+    st.table(summary.set_index('Category'))
 
 with tab2:
     st.header("Compare Two Players")
@@ -169,8 +194,9 @@ with tab2:
 
         with col1:
             st.markdown(f"### {players[0]}")
-            st.markdown("**Strengths:** " + (", ".join(s1) if s1 else "None"))
-            st.markdown("**Weaknesses:** " + (", ".join(w1) if w1 else "None"))
+            st.markdown(generate_summary(players[0],s1,w1))
+            # st.markdown("**Strengths:** " + (", ".join(s1) if s1 else "None"))
+            # st.markdown("**Weaknesses:** " + (", ".join(w1) if w1 else "None"))
 
         with col2:
             fig = go.Figure(data=[
@@ -182,8 +208,9 @@ with tab2:
 
         with col3:
             st.markdown(f"### {players[1]}")
-            st.markdown("**Strengths:** " + (", ".join(s2) if s2 else "None"))
-            st.markdown("**Weaknesses:** " + (", ".join(w2) if w2 else "None"))
+            st.markdown(generate_summary(players[1],s2,w2))
+            # st.markdown("**Strengths:** " + (", ".join(s2) if s2 else "None"))
+            # st.markdown("**Weaknesses:** " + (", ".join(w2) if w2 else "None"))
         
 
 with tab3:
