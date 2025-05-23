@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+from openai import OpenAI
 
 @st.cache_data
 
@@ -236,8 +237,6 @@ def extract_strengths_weaknesses(pdata):
     weaknesses = list(set(weaknesses) - set(strengths))
     return strengths, weaknesses, insights
 
-
-
 def generate_summary(name, strengths, weaknesses):
     summary = f"**{name} Summary:**\n"
     if strengths:
@@ -250,6 +249,20 @@ def generate_summary(name, strengths, weaknesses):
         summary += "Has a balanced profile across all attributes."
     
     return summary
+
+def setupAI():
+    client = OpenAI(
+        api_key=""
+    )
+
+    completion = client.chat.completions.create(
+        model="gpt-4o-mini",
+        store=True,
+        messages=[
+            {"role": "user", "content": "write a haiku about ai"}
+        ]
+        )
+    pass
 
 st.set_page_config(page_title="Player Dashboard", layout="wide")
 # Add this right after st.set_page_config(...)
@@ -266,6 +279,8 @@ with col_title:
     #st.markdown("<h2 style='padding-top: 20px; text-align: left;'>Sport Optima Performance Dashboard</h2>", unsafe_allow_html=True)
 
 latest_data, full_data = load_data()
+
+setupAI()
 
 # Convert to tabs instead of radio
 tab1, tab2 = st.tabs(["🧠 Player Deepdive", "🆚 Compare Players"])
@@ -388,7 +403,4 @@ with tab2:
             st.markdown(f"### {players[1]}")
             st.markdown(generate_summary(players[1],s2,w2))
             # st.markdown("**Strengths:** " + (", ".join(s2) if s2 else "None"))
-            # st.markdown("**Weaknesses:** " + (", ".join(w2) if w2 else "None"))
-        
-
-
+            # st.markdown("**Weaknesses:** " + (", ".join(w2) if w2 else "None"))        
